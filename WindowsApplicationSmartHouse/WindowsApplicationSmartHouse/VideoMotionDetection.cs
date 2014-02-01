@@ -122,6 +122,155 @@ namespace WindowsApplicationSmartHouse
             this.Cursor = Cursors.Default;
         }
 
-        
+        private void videoSourcePlayer_NewFrame(object sender, ref Bitmap image)
+        {
+            lock (this)
+            {
+                if (detector != null)
+                {
+                    float motionLevel = detector.ProcessFrame(image);
+
+                    if (motionLevel > motionAlarmLevel)
+                    {
+                        // flash for 2 seconds
+                        flash = (int)(2 * (1000 / alarmTimer.Interval));
+                        //Save Photo
+                        string fileName = DateTime.Now.Hour.ToString() + DateTime.Now.Minute.ToString() +
+                                          DateTime.Now.Second.ToString() + DateTime.Now.Millisecond.ToString();
+                        //Check if there is an Alarm
+                        _deviceData[0] = "0000012345";
+                        _deviceData[1] = "Video";
+                        _deviceData[2] = "1";
+                        if (_bwfc.IsThereAlarm(_deviceData)=="Warning")
+                        {
+                            image.Save("D:\\Caelum 2012\\Warda Daily Work\\" + fileName + ".jpg", 
+                                System.Drawing.Imaging.ImageFormat.Jpeg);
+                        }
+                        
+
+                    }
+
+                    // check objects' count
+                    if (detector.MotionProcessingAlgorithm is BlobCountingObjectsProcessing)
+                    {
+                        BlobCountingObjectsProcessing countingDetector = (BlobCountingObjectsProcessing)detector.MotionProcessingAlgorithm;
+                        detectedObjectsCount = countingDetector.ObjectsCount;
+                    }
+                    else
+                    {
+                        detectedObjectsCount = -1;
+                    }
+
+                    // accumulate history
+                    motionHistory.Add(motionLevel);
+                    if (motionHistory.Count > 300)
+                    {
+                        motionHistory.RemoveAt(0);
+                    }
+
+                    //if (showMotionHistoryToolStripMenuItem.Checked)
+                    //    DrawMotionHistory(image);
+                }
+            }
+        }
+
+        private void SetMotionDetectionAlgorithm(IMotionDetector detectionAlgorithm)
+        {
+            lock (this)
+            {
+                detector.MotionDetectionAlgorithm = detectionAlgorithm;
+                motionHistory.Clear();
+
+                if (detectionAlgorithm is TwoFramesDifferenceDetector)
+                {
+                    if (
+                        (detector.MotionProcessingAlgorithm is MotionBorderHighlighting) ||
+                        (detector.MotionProcessingAlgorithm is BlobCountingObjectsProcessing))
+                    {
+                        motionProcessingType = 1;
+                        SetMotionProcessingAlgorithm(new MotionAreaHighlighting());
+                    }
+                }
+            }
+        }
+
+        private void SetMotionProcessingAlgorithm(IMotionProcessing processingAlgorithm)
+        {
+            lock (this)
+            {
+                detector.MotionProcessingAlgorithm = processingAlgorithm;
+            }
+        }
+
+
+
+        private void btnShowVideo_Click(object sender, EventArgs e)
+        {
+            string[] _cameras = GetCameras();
+            VideoCaptureDevice videoSource = new VideoCaptureDevice(_cameras[0]);
+            OpenVideoSource(videoSource);
+        }
+
+        private void btnApplyDetection_Click(object sender, EventArgs e)
+        {
+            motionDetectionType = 1;
+            SetMotionDetectionAlgorithm(new TwoFramesDifferenceDetector());
+            motionProcessingType = 1;
+            //motionProcessingType = 0;
+            SetMotionProcessingAlgorithm(new MotionAreaHighlighting());
+            //SetMotionProcessingAlgorithm(null);
+        }
+
+        private void btnDetermineZone_Click(object sender, EventArgs e)
+        {
+            Rectangle r = new Rectangle(271, 104, 195, 153);
+            Rectangle[] recarray = new Rectangle[1];
+            recarray[0] = r;
+            detector.MotionZones = recarray;
+        }
+
+        private void VideoMotionDetection_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            CloseVideoSource();
+        }
+
+        private void alarmTimer_Tick(object sender, EventArgs e)
+        {
+            if (flash != 0)
+            {
+                videoSourcePlayer.BorderColor = (flash % 2 == 1) ? Color.Black : Color.Red;
+                flash--;
+            }
+        }
+
+        private void timer_Tick(object sender, EventArgs e)
+        {
+            IVideoSource videoSource = videoSourcePlayer.VideoSource;
+
+            if (videoSource != null)
+            {
+                // get number of frames for the last second
+                statCount[statIndex] = videoSource.FramesReceived;
+
+                // increment indexes
+                if (++statIndex >= statLength)
+                    statIndex = 0;
+                if (statReady < statLength)
+                    statReady++;
+
+                float fps = 0;
+
+                // calculate average value
+                for (int i = 0; i < statReady; i++)
+                {
+                    fps += statCount[i];
+                }
+                fps /= statReady;
+
+                statCount[statIndex] = 0;
+
+                //fpsLabel.Text = fps.ToString("F2") + " fps";
+            }
+        }
     }
 }
